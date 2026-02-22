@@ -8,11 +8,12 @@ use microbit::hal::{
     },
     timer::Instance,
 };
+use rtt_target::rprint;
 
 use super::hsv_rgb_convert::{Hsv, Rgb};
 
 use crate::BluePinType;
-use crate::COLOR_TIMER;
+use crate::ColorTimer;
 use crate::GreenPinType;
 use crate::RedPinType;
 
@@ -30,18 +31,18 @@ pub struct ColorControler {
     green_pin: GreenPinType,
     blue_pin: BluePinType,
 
-    timer: COLOR_TIMER,
+    timer: ColorTimer,
     remaining_frames: f32,
 }
 
 impl ColorControler {
     const STEPS_PER_FRAME: f32 = 100.0; // 100 steps at 100us means takes 10ms to make a color
-    const DURATION_PER_STEP_MS: f32 = 0.1;
-    const TICKS_PER_MS: f32 = (COLOR_TIMER::TICKS_PER_SECOND / 1000) as f32;
+    const DURATION_PER_STEP_MS: f32 = 0.1; //100 us
+    const TICKS_PER_MS: f32 = (ColorTimer::TICKS_PER_SECOND / 1000) as f32;
 
     pub fn new(
         color: Hsv,
-        mut timer: COLOR_TIMER,
+        mut timer: ColorTimer,
         red_pin: RedPinType,
         green_pin: GreenPinType,
         blue_pin: BluePinType,
@@ -75,26 +76,21 @@ impl ColorControler {
         ret
     }
 
-    fn find_min(rgb: &Rgb) -> f32 {
-        let mut min = rgb.r;
+    fn find_min_nonzero(rgb: &Rgb) -> f32 {
+        let mut min = 1.1;
 
-        if rgb.g < min {
+        if rgb.r < min && rgb.r > 0.0 {
+            min = rgb.r;
+        }
+        if rgb.g < min && rgb.g > 0.0 {
             min = rgb.g;
         }
-        if rgb.b < min {
+        if rgb.b < min && rgb.b > 0.0 {
             min = rgb.b;
         }
 
-        min
-    }
-
-    fn round(number: f32) -> u32 {
-        let mut integer: u32 = number as u32; //round down
-        let remainder: f32 = number - (integer as f32); //get decimal remainder
-        if remainder >= 0.5 {
-            integer += 1;
-        }
-        integer
+        // if min is > 1 then all rgb values are 0
+        if min > 1.0 { 0.0 } else { min }
     }
 
     fn subtract_rgb(&mut self, value: f32) {
@@ -128,7 +124,7 @@ impl ColorControler {
         }
 
         let rgb = self.cur_color;
-        let min_val = ColorControler::find_min(&rgb);
+        let min_val = ColorControler::find_min_nonzero(&rgb);
 
         if rgb.r > 0.0 {
             self.red_pin.set_low(); //turn on
@@ -148,13 +144,24 @@ impl ColorControler {
             self.blue_pin.set_high(); //turn off
         }
 
-        let steps = min_val * ColorControler::STEPS_PER_FRAME;
+        let mut steps = min_val * ColorControler::STEPS_PER_FRAME;
+        if steps <= 0.0 {
+            steps = self.remaining_frames;
+        }
+
         let duration_ms = steps * ColorControler::DURATION_PER_STEP_MS;
-        let clock_cycles = ColorControler::TICKS_PER_MS * duration_ms;
+        let mut clock_cycles = ColorControler::TICKS_PER_MS * duration_ms;
 
         self.remaining_frames -= steps;
         self.subtract_rgb(min_val);
 
-        self.timer.start(ColorControler::round(clock_cycles));
+        if clock_cycles < 1.0 {
+            //this means less than 1 us remaining, and can't pass a 0 to timer otherwise it will hang forever
+            clock_cycles = 1.0;
+            self.remaining_frames = 0.0; //triggers that to rebuild self.cur_color at top of render()
+        }
+
+        rprint!("{}", clock_cycles);
+        self.timer.start(clock_cycles as u32); //round down makes sense bc all this takes time
     }
 }

@@ -18,12 +18,19 @@ use microbit::{
             p1::P1_02,
         },
         gpiote::Gpiote,
+        saadc,
+        saadc::{Saadc, SaadcConfig},
     },
-    pac::{Interrupt, NVIC, TIMER0, TIMER1, TIMER2, interrupt},
+    pac::{Interrupt, NVIC, TIMER0, TIMER1, TIMER2, TIMER3, interrupt},
+};
+
+use core::{
+    f32::MIN,
+    sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst},
 };
 
 use crate::utils::color_control::{ColorControler, STARTING_HSV};
-use crate::utils::hsv_display::HSVDisplay;
+use crate::utils::hsv_display::{HSVDisplay, HSVPage};
 use critical_section_lock_mut::LockMut;
 
 /// types
@@ -31,15 +38,24 @@ type RedPinType = P0_10<Output<PushPull>>; //e08
 type GreenPinType = P0_09<Output<PushPull>>; //e09
 type BluePinType = P1_02<Output<PushPull>>; //e16
 type PotType = P0_04<Input<Floating>>; //e02
-type COLOR_TIMER = Timer<TIMER2>;
+type ColorTimer = Timer<TIMER2>;
 
 /// globals
 const DEBOUNCE_TIME: u32 = 100 * 1_000_000 / 1000; // 100ms at 1MHz count rate.
+const MAX_ADC_VALUE: i16 = (1_i16 << 14) - 1_i16;
+const MAX_ADC_THRESHOLD: f32 = MAX_ADC_VALUE as f32 * 0.98; //16,053
+const MIN_ADC_THRESHOLD: f32 = 10f32; //for clamping
+const REFRESH_RATE_MS: u32 = 100;
+const TIMER_TICKS_PER_MS: u32 = 1_000_000u32 / 1000;
+const REFRESH_RATE_TICKS: u32 = TIMER_TICKS_PER_MS * REFRESH_RATE_MS;
 
 static GPIOTE_PERIPHERAL: LockMut<Gpiote> = LockMut::new();
 static DEBOUNCE_TIMER: LockMut<Timer<TIMER1>> = LockMut::new();
+static ADC_ACC_TIMER: LockMut<Timer<TIMER3>> = LockMut::new();
 static DISPLAY: LockMut<HSVDisplay<TIMER0>> = LockMut::new();
 static COLOR_CONTROLER: LockMut<ColorControler> = LockMut::new();
+static ADC_ACCUMULATOR_VALUE: AtomicU32 = AtomicU32::new(0); //can accumulate max adc value for more than 5 seconds at 20us sample rate before overflow
+static ADC_READY_READ: AtomicBool = AtomicBool::new(false);
 
 /// Non-Blocking Display Timer event handler
 #[interrupt]
@@ -54,6 +70,15 @@ fn TIMER0() {
 fn TIMER2() {
     COLOR_CONTROLER.with_lock(|color_controler| {
         color_controler.render();
+    });
+}
+
+/// ADC Accumulator Timer event handler
+#[interrupt]
+fn TIMER3() {
+    ADC_ACC_TIMER.with_lock(|adc_acc_timer| {
+        ADC_READY_READ.store(true, SeqCst);
+        adc_acc_timer.start(REFRESH_RATE_TICKS);
     });
 }
 
@@ -102,6 +127,10 @@ fn init() {
     COLOR_CONTROLER.with_lock(|color_controler| {
         color_controler.render();
     });
+
+    ADC_ACC_TIMER.with_lock(|adc_acc_timer| {
+        adc_acc_timer.start(REFRESH_RATE_TICKS);
+    });
 }
 
 #[entry]
@@ -121,16 +150,23 @@ fn main() -> ! {
     let b_btn = board.buttons.button_b.into_floating_input().degrade();
 
     // setup RGB pins
-    let color_timer = Timer::new(board.TIMER2);
+    let color_timer: ColorTimer = Timer::new(board.TIMER2);
     let red: RedPinType = board.edge.e08.into_push_pull_output(Level::High); //High means off for the LED
     let green: GreenPinType = board.edge.e09.into_push_pull_output(Level::High); //High means off for the LED
     let blue: BluePinType = board.edge.e16.into_push_pull_output(Level::High);
-    let colorControler: ColorControler =
+    let color_controler: ColorControler =
         ColorControler::new(STARTING_HSV, color_timer, red, green, blue);
-    COLOR_CONTROLER.init(colorControler);
+    COLOR_CONTROLER.init(color_controler);
 
     // setup the pot A2D
-    let pot: PotType = board.edge.e02.into_floating_input();
+    let mut pot: PotType = board.edge.e02.into_floating_input();
+    let mut adc_config = SaadcConfig::default();
+    adc_config.time = saadc::Time::_40US; //slowest sample rate, 40us
+    let mut adc = Saadc::new(board.ADC, adc_config);
+    let mut adc_accumulator_timer = Timer::new(board.TIMER3);
+    adc_accumulator_timer.enable_interrupt();
+    adc_accumulator_timer.reset_event();
+    ADC_ACC_TIMER.init(adc_accumulator_timer);
 
     //setup gpiote interupts
     let gpiote = Gpiote::new(board.GPIOTE);
@@ -150,15 +186,57 @@ fn main() -> ! {
 
     // Set up the NVIC to handle interrupts.
     unsafe {
-        NVIC::unmask(Interrupt::GPIOTE);
-        NVIC::unmask(Interrupt::TIMER0);
-        NVIC::unmask(Interrupt::TIMER2);
+        NVIC::unmask(Interrupt::GPIOTE); // btns
+        NVIC::unmask(Interrupt::TIMER0); // non-blockign display timer
+        NVIC::unmask(Interrupt::TIMER2); // color change timer
+        NVIC::unmask(Interrupt::TIMER3); // adc accumulator
     }; // allow NVIC to handle GPIOTE signals
-    NVIC::unpend(Interrupt::GPIOTE); //clear any currently pending GPIOTE state
-    NVIC::unpend(Interrupt::TIMER0); //clear any currently pending GPIOTE state
-    NVIC::unpend(Interrupt::TIMER2); //clear any currently pending GPIOTE state
+    //clear any currently pending GPIOTE state
+    NVIC::unpend(Interrupt::GPIOTE);
+    NVIC::unpend(Interrupt::TIMER0);
+    NVIC::unpend(Interrupt::TIMER2);
+    NVIC::unpend(Interrupt::TIMER3);
 
     init();
 
-    loop {}
+    let mut adc_counter: u32 = 0;
+    loop {
+        let mut raw_value = adc.read_channel(&mut pot).unwrap();
+        if raw_value < 0 {
+            raw_value = 0;
+        }
+
+        ADC_ACCUMULATOR_VALUE.fetch_add(raw_value as u32, SeqCst);
+        adc_counter += 1;
+
+        if ADC_READY_READ.load(SeqCst) {
+            let total = ADC_ACCUMULATOR_VALUE.load(SeqCst);
+            let mut average = total as f32 / adc_counter as f32;
+            if average < MIN_ADC_THRESHOLD {
+                average = MIN_ADC_THRESHOLD;
+            } else if average > MAX_ADC_THRESHOLD {
+                average = MAX_ADC_THRESHOLD;
+            }
+
+            let percentage =
+                (average - MIN_ADC_THRESHOLD) / (MAX_ADC_THRESHOLD - MIN_ADC_THRESHOLD); //scale so [0-1]
+            //rprintln!("{} {} {} {}", total, adc_counter, average, percentage);
+
+            let mut display_page = HSVPage::H;
+            DISPLAY.with_lock(|display| {
+                display_page = display.get_page();
+            });
+
+            COLOR_CONTROLER.with_lock(|color_controler| match display_page {
+                HSVPage::H => color_controler.update_hue(percentage),
+                HSVPage::S => color_controler.update_sat(percentage),
+                HSVPage::V => color_controler.update_value(percentage),
+            });
+
+            // reset things
+            adc_counter = 0;
+            ADC_READY_READ.store(false, SeqCst);
+            ADC_ACCUMULATOR_VALUE.store(0, SeqCst);
+        }
+    }
 }

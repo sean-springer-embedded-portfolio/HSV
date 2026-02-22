@@ -3,7 +3,8 @@ use microbit::{
     hal::timer::Instance,
 };
 
-enum HSVPage {
+#[derive(Clone, Copy)]
+pub enum HSVPage {
     H = 0,
     S = 1,
     V = 2,
@@ -92,5 +93,9 @@ where
 
     pub fn handle_display_event(&mut self) {
         self.display.handle_display_event();
+    }
+
+    pub fn get_page(&self) -> HSVPage {
+        return self.page;
     }
 }
