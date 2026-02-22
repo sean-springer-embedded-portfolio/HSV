@@ -16,9 +16,15 @@ use crate::COLOR_TIMER;
 use crate::GreenPinType;
 use crate::RedPinType;
 
+pub const STARTING_HSV: Hsv = Hsv {
+    h: 0.9167,
+    s: 0.75,
+    v: 0.8,
+}; //magenta
+
 pub struct ColorControler {
     base_color: Hsv,
-    cur_color: Hsv,
+    cur_color: Rgb,
 
     red_pin: RedPinType,
     green_pin: GreenPinType,
@@ -33,7 +39,7 @@ impl ColorControler {
     const DURATION_PER_STEP_MS: f32 = 0.1;
     const TICKS_PER_MS: f32 = (COLOR_TIMER::TICKS_PER_SECOND / 1000) as f32;
 
-    fn new(
+    pub fn new(
         color: Hsv,
         mut timer: COLOR_TIMER,
         red_pin: RedPinType,
@@ -46,7 +52,7 @@ impl ColorControler {
 
         ColorControler {
             base_color: color,
-            cur_color: color,
+            cur_color: color.to_rgb(),
 
             red_pin,
             green_pin,
@@ -91,6 +97,12 @@ impl ColorControler {
         integer
     }
 
+    fn subtract_rgb(&mut self, value: f32) {
+        self.cur_color.r -= value;
+        self.cur_color.g -= value;
+        self.cur_color.b -= value;
+    }
+
     pub fn clamp(hsv: &mut Hsv) {
         hsv.h = ColorControler::_clamp(hsv.h);
         hsv.s = ColorControler::_clamp(hsv.s);
@@ -111,34 +123,37 @@ impl ColorControler {
 
     pub fn render(&mut self) {
         if self.remaining_frames <= 0.0 {
-            self.cur_color = self.base_color;
+            self.cur_color = self.base_color.to_rgb();
             self.remaining_frames = ColorControler::STEPS_PER_FRAME;
         }
 
-        let rgb = self.cur_color.to_rgb();
+        let rgb = self.cur_color;
         let min_val = ColorControler::find_min(&rgb);
 
         if rgb.r > 0.0 {
-            self.red_pin.set_low();
+            self.red_pin.set_low(); //turn on
         } else {
-            self.red_pin.set_high();
+            self.red_pin.set_high(); // turn off
         }
 
         if rgb.g > 0.0 {
-            self.green_pin.set_low();
+            self.green_pin.set_low(); //turn on
         } else {
-            self.green_pin.set_high();
+            self.green_pin.set_high(); //turn off
         }
 
         if rgb.b > 0.0 {
-            self.blue_pin.set_low();
+            self.blue_pin.set_low(); //turn on
         } else {
-            self.blue_pin.set_high();
+            self.blue_pin.set_high(); //turn off
         }
 
         let steps = min_val * ColorControler::STEPS_PER_FRAME;
         let duration_ms = steps * ColorControler::DURATION_PER_STEP_MS;
         let clock_cycles = ColorControler::TICKS_PER_MS * duration_ms;
+
+        self.remaining_frames -= steps;
+        self.subtract_rgb(min_val);
 
         self.timer.start(ColorControler::round(clock_cycles));
     }

@@ -22,7 +22,7 @@ use microbit::{
     pac::{Interrupt, NVIC, TIMER0, TIMER1, TIMER2, interrupt},
 };
 
-use crate::utils::color_control::ColorControler;
+use crate::utils::color_control::{ColorControler, STARTING_HSV};
 use crate::utils::hsv_display::HSVDisplay;
 use critical_section_lock_mut::LockMut;
 
@@ -39,7 +39,9 @@ const DEBOUNCE_TIME: u32 = 100 * 1_000_000 / 1000; // 100ms at 1MHz count rate.
 static GPIOTE_PERIPHERAL: LockMut<Gpiote> = LockMut::new();
 static DEBOUNCE_TIMER: LockMut<Timer<TIMER1>> = LockMut::new();
 static DISPLAY: LockMut<HSVDisplay<TIMER0>> = LockMut::new();
+static COLOR_CONTROLER: LockMut<ColorControler> = LockMut::new();
 
+/// Non-Blocking Display Timer event handler
 #[interrupt]
 fn TIMER0() {
     DISPLAY.with_lock(|display| {
@@ -47,6 +49,15 @@ fn TIMER0() {
     });
 }
 
+/// RGB LED color change event handler
+#[interrupt]
+fn TIMER2() {
+    COLOR_CONTROLER.with_lock(|color_controler| {
+        color_controler.render();
+    });
+}
+
+/// Buttons event handler
 #[interrupt]
 fn GPIOTE() {
     // check for bouncing using a 100ms timer based coolddown:
@@ -83,6 +94,16 @@ fn GPIOTE() {
     });
 }
 
+fn init() {
+    DISPLAY.with_lock(|display| {
+        display.render();
+    });
+
+    COLOR_CONTROLER.with_lock(|color_controler| {
+        color_controler.render();
+    });
+}
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
@@ -104,6 +125,9 @@ fn main() -> ! {
     let red: RedPinType = board.edge.e08.into_push_pull_output(Level::High); //High means off for the LED
     let green: GreenPinType = board.edge.e09.into_push_pull_output(Level::High); //High means off for the LED
     let blue: BluePinType = board.edge.e16.into_push_pull_output(Level::High);
+    let colorControler: ColorControler =
+        ColorControler::new(STARTING_HSV, color_timer, red, green, blue);
+    COLOR_CONTROLER.init(colorControler);
 
     // setup the pot A2D
     let pot: PotType = board.edge.e02.into_floating_input();
@@ -134,8 +158,7 @@ fn main() -> ! {
     NVIC::unpend(Interrupt::TIMER0); //clear any currently pending GPIOTE state
     NVIC::unpend(Interrupt::TIMER2); //clear any currently pending GPIOTE state
 
-    DISPLAY.with_lock(|display| {
-        display.render();
-    });
+    init();
+
     loop {}
 }
