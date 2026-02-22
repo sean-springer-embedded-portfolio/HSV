@@ -1,6 +1,6 @@
 use microbit::{
     display::nonblocking::{Display, GreyscaleImage},
-    hal::{Timer, timer::Instance},
+    hal::timer::Instance,
 };
 
 enum HSVPage {

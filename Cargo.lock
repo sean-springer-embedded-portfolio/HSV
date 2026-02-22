@@ -9,6 +9,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section-lock-mut",
+ "embedded-hal 1.0.0",
  "microbit-v2",
  "panic-rtt-target",
  "rtt-target",
