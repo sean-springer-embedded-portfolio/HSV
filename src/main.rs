@@ -128,9 +128,11 @@ fn main() -> ! {
     unsafe {
         NVIC::unmask(Interrupt::GPIOTE);
         NVIC::unmask(Interrupt::TIMER0);
+        NVIC::unmask(Interrupt::TIMER2);
     }; // allow NVIC to handle GPIOTE signals
     NVIC::unpend(Interrupt::GPIOTE); //clear any currently pending GPIOTE state
     NVIC::unpend(Interrupt::TIMER0); //clear any currently pending GPIOTE state
+    NVIC::unpend(Interrupt::TIMER2); //clear any currently pending GPIOTE state
 
     DISPLAY.with_lock(|display| {
         display.render();
