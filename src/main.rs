@@ -4,12 +4,12 @@
 mod utils;
 
 use panic_rtt_target as _;
-use rtt_target::{rprintln, rtt_init_print};
-
+use rtt_target::{rtt_init_print};
+//use rtt_target::rprintln;
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
-    display::nonblocking::{Display, GreyscaleImage},
+    display::nonblocking::{Display},
     hal::{
         Timer,
         gpio::{
@@ -25,7 +25,6 @@ use microbit::{
 };
 
 use core::{
-    f32::MIN,
     sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst},
 };
 
@@ -160,8 +159,11 @@ fn main() -> ! {
 
     // setup the pot A2D
     let mut pot: PotType = board.edge.e02.into_floating_input();
-    let mut adc_config = SaadcConfig::default();
-    adc_config.time = saadc::Time::_40US; //slowest sample rate, 40us
+    
+    let adc_config = SaadcConfig {
+        time: saadc::Time::_40US, 
+        ..Default::default()
+    };
     let mut adc = Saadc::new(board.ADC, adc_config);
     let mut adc_accumulator_timer = Timer::new(board.TIMER3);
     adc_accumulator_timer.enable_interrupt();
@@ -212,16 +214,11 @@ fn main() -> ! {
         if ADC_READY_READ.load(SeqCst) {
             let total = ADC_ACCUMULATOR_VALUE.load(SeqCst);
             let mut average = total as f32 / adc_counter as f32;
-            if average < MIN_ADC_THRESHOLD {
-                average = MIN_ADC_THRESHOLD;
-            } else if average > MAX_ADC_THRESHOLD {
-                average = MAX_ADC_THRESHOLD;
-            }
-
+            average = average.clamp(MIN_ADC_THRESHOLD, MAX_ADC_THRESHOLD);
+            
             let percentage =
                 (average - MIN_ADC_THRESHOLD) / (MAX_ADC_THRESHOLD - MIN_ADC_THRESHOLD); //scale so [0-1]
-            //rprintln!("{} {} {} {}", total, adc_counter, average, percentage);
-
+            
             let mut display_page = HSVPage::H;
             DISPLAY.with_lock(|display| {
                 display_page = display.get_page();

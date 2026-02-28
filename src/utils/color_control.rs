@@ -1,13 +1,4 @@
 use embedded_hal::digital::OutputPin;
-use microbit::hal::{
-    Timer,
-    gpio::{
-        Floating, Input, Level, Output, PushPull,
-        p0::{P0_04, P0_09, P0_10},
-        p1::P1_02,
-    },
-    timer::Instance,
-};
 use rtt_target::rprint;
 
 use super::hsv_rgb_convert::{Hsv, Rgb};
@@ -38,7 +29,7 @@ pub struct ColorControler {
 impl ColorControler {
     const STEPS_PER_FRAME: u32 = 100; // 100 steps at 100us means takes 10ms to make a color
     const DURATION_PER_STEP_US: u32 = 100; //100 us
-    const TICKS_PER_US: u32 = (ColorTimer::TICKS_PER_SECOND / 1000 / 1000) as u32; //should be 1
+    const TICKS_PER_US: u32 = ColorTimer::TICKS_PER_SECOND / 1000 / 1000; //should be 1
     const BRIGHTNESS_STEPS: f32 = 100.0;
 
     pub fn new(
@@ -67,14 +58,7 @@ impl ColorControler {
     }
 
     fn _clamp(value: f32) -> f32 {
-        let mut ret = value;
-        if ret > 1.0 {
-            ret = 1.0;
-        } else if ret < 0.0 {
-            ret = 0.0;
-        }
-
-        ret
+        value.clamp(0.0, 1.0)
     }
 
     fn round(number: f32) -> f32 {
@@ -175,13 +159,6 @@ impl ColorControler {
         self.remaining_frames -= steps;
         self.subtract_rgb(min_val);
 
-        rprint!("{} [{},{},{}]  ", duration_us, rgb.r, rgb.g, rgb.b);
-        //if clock_cycles < 2 {
-        //    //this means less than 1 us remaining, and can't pass a 0 to timer otherwise it will hang forever
-        //    clock_cycles = 2;
-        //    self.remaining_frames = 0; //triggers that to rebuild self.cur_color at top of render()
-        // }
-
-        self.timer.start(clock_cycles as u32); //round down makes sense bc all this takes time
+        self.timer.start(clock_cycles); //round down makes sense bc all this takes time
     }
 }

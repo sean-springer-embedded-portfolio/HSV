@@ -96,6 +96,6 @@ where
     }
 
     pub fn get_page(&self) -> HSVPage {
-        return self.page;
+        self.page
     }
 }
