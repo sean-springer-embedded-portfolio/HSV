@@ -9,6 +9,8 @@ Use the MB2, edge connector, and 10k potentiometer to control the HSV of a RGB L
   Your browser does not support the video tag.
 </video>
 
+https://github.com/user-attachments/assets/ab85c7b3-3143-4d5e-ba78-49c04a9600d1
+
 ## What It Does
 
 RGB LEDs are great but how can these 3 colors be controlled to generate the full spectrum of the [rainbow](https://en.wikipedia.org/wiki/Rainbow)?  
