@@ -20,19 +20,19 @@ can be selected by pressing the A/B buttons on the MB2 and their associated valu
 
 ## How It Works
 
-Each PWM cycle occurs in increments of 100usecs with 100 total frames required to generate a single color (10msec per color). This  
-10Hz color rate is faster than the human eye can distguish and so gives the illusion of colors other than red, green, and blue.  
-To accomplish this, an MB2 timer peripheral is dedicated to the RGB PWM cycle where each color (consider color now in the [RGB](https://en.wikipedia.org/wiki/RGB_color_model) color space)  
+Each PWM cycle occurs in increments of 100usecs with 100 total frames required to generate a single color (10msec per color). This
+10Hz color rate is faster than the human eye can distguish and so gives the illusion of colors other than red, green, and blue.
+To accomplish this, an MB2 timer peripheral is dedicated to the RGB PWM cycle where each color (consider color now in the [RGB](https://en.wikipedia.org/wiki/RGB_color_model) color space)
 pin is turned on for a percentage of the total color duration (10msec).
 
-For example, consider the rgb code 204,51,128 (magenta). This rgb code can be converted to a percentage scale (range [0,1]) by dividing  
-each value by 255: rgb(0.8, 0.2, 0.5). Therefore, to produce this color via PWM of the RGB pins of the LED we must leave the red pin on  
-for 80% of the total duration, green on for 20%, blue on for 50%, and all pins off for the remaining 20%. Because each color frame last  
+For example, consider the rgb code 204,51,128 (magenta). This rgb code can be converted to a percentage scale (range [0,1]) by dividing
+each value by 255: rgb(0.8, 0.2, 0.5). Therefore, to produce this color via PWM of the RGB pins of the LED we must leave the red pin on
+for 80% of the total duration, green on for 20%, blue on for 50%, and all pins off for the remaining 20%. Because each color frame last
 10 msecs, the red pin duration would be 8msec, green pin duration 2msec, blue pin for 5msec, and off for 2 msec.
 
-A potentiometer is used to control the color settings using the HSV color model. The voltage out of the pot is sampled using the MB2 ADC.  
-This voltage is averaged over the 10msec update interval to produce a final scaled percentage [0,1]. The MB2 A/B buttons can be used to  
-change whether the pot adjustments will effect the hue, saturation, or value of the HSV color model and the currently selected setting is  
+A potentiometer is used to control the color settings using the HSV color model. The voltage out of the pot is sampled using the MB2 ADC.
+This voltage is averaged over the 10msec update interval to produce a final scaled percentage [0,1]. The MB2 A/B buttons can be used to
+change whether the pot adjustments will effect the hue, saturation, or value of the HSV color model and the currently selected setting is
 displayed on the MB2 5x5 LED matrix.
 
 ## Physical Setup
